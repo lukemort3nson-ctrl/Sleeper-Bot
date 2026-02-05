@@ -4,11 +4,19 @@ const axios = require("axios");
 const {
   Client,
   GatewayIntentBits,
-  EmbedBuilder
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } = require("discord.js");
 
 // ================== CONFIG ==================
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID; // used if needed
+const GUILD_ID = process.env.DISCORD_GUILD_ID; // used for registering commands (optional)
 const LEAGUE_ID = "1313964542505545728";
 const PLAYOFF_TEAMS = 6;
 const SIMULATIONS = 5000;
@@ -20,6 +28,9 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
+// In-memory temp storage for user selections (non-persistent)
+const tradeSelections = {};
+
 // ================== LOAD BYLAWS ==================
 const bylaws = JSON.parse(fs.readFileSync("./bylaws.json", "utf8"));
 
@@ -30,6 +41,33 @@ client.once("ready", () => {
 
 // ================== INTERACTIONS ==================
 client.on("interactionCreate", async interaction => {
+  // ---- Autocomplete handler for /trade ----
+  if (interaction.isAutocomplete()) {
+    try {
+      if (interaction.commandName === "trade") {
+        const focused = interaction.options.getFocused(); // user's current input for that option
+        // We'll support comma-separated entries and autocomplete the last fragment
+        const last = focused.split(",").pop().trim().toLowerCase();
+
+        const values = await getFantasyCalcValues();
+        const names = values
+          .map(v => (v.player && v.player.name) || v.name)
+          .filter(Boolean);
+
+        const matches = last
+          ? names.filter(n => n.toLowerCase().includes(last))
+          : names; // if empty, show top names
+
+        const toRespond = matches.slice(0, 25).map(n => ({ name: n, value: n }));
+        await interaction.respond(toRespond);
+      }
+    } catch (err) {
+      console.error("Autocomplete error:", err);
+      await interaction.respond([]);
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   // ========== /BYLAWS ==========
@@ -79,14 +117,24 @@ client.on("interactionCreate", async interaction => {
 
   // ========== /TRADE ==========
   if (interaction.commandName === "trade") {
-    const give = interaction.options.getString("give").split(",");
-    const get = interaction.options.getString("get").split(",");
+    // Options are expected to be comma-separated player names
+    const giveRaw = interaction.options.getString("give") || "";
+    const getRaw = interaction.options.getString("get") || "";
 
-    await interaction.reply("📊 Analyzing trade...");
+    const giveArr = giveRaw.split(",").map(s => s.trim()).filter(Boolean);
+    const getArr = getRaw.split(",").map(s => s.trim()).filter(Boolean);
 
-    const giveValue = await calculateTradeSide(give);
-    const getValue = await calculateTradeSide(get);
+    if (giveArr.length === 0 && getArr.length === 0) {
+      return interaction.reply({
+        content: "Please provide at least one player in `give` or `get`. You can use autocomplete while typing.",
+        ephemeral: true
+      });
+    }
 
+    await interaction.reply({ content: "📊 Analyzing trade...", ephemeral: true });
+
+    const giveValue = await calculateTradeSide(giveArr);
+    const getValue = await calculateTradeSide(getArr);
     const diff = getValue - giveValue;
 
     let verdict = "Fair Trade ✅";
@@ -95,8 +143,8 @@ client.on("interactionCreate", async interaction => {
 
     return interaction.editReply(
       `📊 **Dynasty Trade Analysis (FantasyCalc)**\n\n` +
-      `You Give: **${giveValue}**\n` +
-      `You Get: **${getValue}**\n\n` +
+      `You Give: **${giveValue.toFixed(1)}**\n` +
+      `You Get: **${getValue.toFixed(1)}**\n\n` +
       `**Result:** ${verdict}`
     );
   }
@@ -195,6 +243,7 @@ function normalizeName(name) {
 }
 
 async function calculateTradeSide(items) {
+  // items: array of player-name strings
   const values = await getFantasyCalcValues();
   let total = 0;
 
