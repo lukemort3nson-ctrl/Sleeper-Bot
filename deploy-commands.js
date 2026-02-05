@@ -22,24 +22,39 @@ const commands = [
     )
     .toJSON(),
 
-  // /trade
-  new SlashCommandBuilder()
-    .setName("trade")
-    .setDescription("Analyze a dynasty trade using FantasyCalc")
-    .addStringOption(option =>
-      option
-        .setName("give")
-        .setDescription("Comma-separated assets you give (players or picks)")
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName("get")
-        .setDescription("Comma-separated assets you receive (players or picks)")
-        .setRequired(true)
-    )
-    .toJSON(),
 
+
+const tradeCommand = new SlashCommandBuilder()
+  .setName("trade")
+  .setDescription("Analyze a dynasty trade (autocomplete enabled)")
+  .addStringOption(opt =>
+    opt.setName("give")
+      .setDescription("Players you GIVE (comma-separated). Start typing to autocomplete.")
+      .setRequired(false)
+      .setAutocomplete(true)
+  )
+  .addStringOption(opt =>
+    opt.setName("get")
+      .setDescription("Players you GET (comma-separated). Start typing to autocomplete.")
+      .setRequired(false)
+      .setAutocomplete(true)
+  );
+
+const commands = [tradeCommand.toJSON()];
+
+const rest = new REST({ version: "10" }).setToken(token);
+
+(async () => {
+  try {
+    console.log("Registering guild commands...");
+    await rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: commands }
+    );
+    console.log("Commands registered.");
+  } catch (err) {
+    console.error(err);
+  
   // /weekly
   new SlashCommandBuilder()
     .setName("weekly")
